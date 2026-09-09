@@ -66,11 +66,13 @@ export class HostConnectionService extends Service implements HostConnectionHand
    * @param ctx - owning Connection plugin context.
    * @param trustedHosts - deployment authorities accepted by the Host/Origin fence.
    * @param browserAuth - process token and persistent browser-session owner.
+   * @param unsafeAllowRemote - bypass Web request trust and browser authentication.
    */
   constructor(
     ctx: Context,
     private readonly trustedHosts: readonly string[],
     private readonly browserAuth: BrowserAuth,
+    private readonly unsafeAllowRemote = false,
   ) {
     super(ctx, 'connection')
   }
@@ -93,20 +95,21 @@ export class HostConnectionService extends Service implements HostConnectionHand
     }
   }
 
-  /** Apply the configured Host/Origin fence, then browser authentication. */
+  /** Apply Host/Origin checks and authentication unless unrestricted remote access is enabled. */
   requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+    if (this.unsafeAllowRemote) return undefined
     if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
     return this.browserAuth.isAuthenticated(request) ? undefined : 401
   }
 
-  /** Authenticate an index request through the process-token exchange or cookie. */
+  /** Authorize index access through browser authentication or unrestricted remote administration. */
   authorizeIndex(request: ConnectionIndexRequest, response: ConnectionIndexResponse): boolean {
-    return this.browserAuth.authorizeIndex(request, response)
+    return this.unsafeAllowRemote || this.browserAuth.authorizeIndex(request, response)
   }
 
-  /** Add this process's launch token to the clean application URL. */
+  /** Add a launch token unless unrestricted remote administration is enabled. */
   authenticatedUrl(baseUrl: string): string {
-    return this.browserAuth.authenticatedUrl(baseUrl)
+    return this.unsafeAllowRemote ? baseUrl : this.browserAuth.authenticatedUrl(baseUrl)
   }
 
   /**

@@ -118,6 +118,52 @@ function browserCookie(connection: HostConnectionHandle, authority: string): str
 }
 
 describe('connection node half', () => {
+  it.each([true, false])('applies remote access policy to HTTP, index, and upgrade requests: %s', async (unsafeAllowRemote) => {
+    const { ctx, routes, connection, dispose } = await mounted({ unsafeAllowRemote })
+    try {
+      const headers = { host: '203.0.113.10:3080', origin: 'https://other.example', 'sec-fetch-site': 'cross-site' }
+      const rows: IndexInjection[] = []
+      ctx.emit('webserver/index-inject', rows)
+      expect(rows.some(row => row.kind === 'global' && row.name === '__DSH_UNSAFE_ALLOW_REMOTE__'))
+        .toBe(unsafeAllowRemote)
+      expect(connection.requestRejection(fakeRequest(headers, '/api/remote.mux')))
+        .toBe(unsafeAllowRemote ? undefined : 403)
+      const index = fakeResponse()
+      expect(connection.authorizeIndex(fakeRequest(headers, '/'), index.response)).toBe(unsafeAllowRemote)
+      expect(new URL(connection.authenticatedUrl('http://203.0.113.10:3080')).searchParams.has('token'))
+        .toBe(!unsafeAllowRemote)
+      connection.rpc.intercept('/api', endpoint => endpoint === 'settings/describe', async () => ({ ok: true, value: 'settings' }))
+      const route = routes.find(row => row.path === '/api')!
+      const response = fakeResponse()
+      await route.handler(fakePost(headers, '/api/settings/describe', {
+        type: 'client-request', rpcId: RpcId('remote-access'), method: 'settings/describe', payload: {},
+      }), response.response)
+      expect(response.state.status).toBe(unsafeAllowRemote ? 200 : 403)
+      if (unsafeAllowRemote) expect(JSON.parse(response.state.body as string)).toMatchObject({ result: { ok: true, value: 'settings' } })
+    } finally {
+      await dispose()
+    }
+  })
+
+  it.each([
+    { contentType: 'text/plain', body: '{}', status: 415 },
+    { contentType: 'application/json', body: '{', status: 400 },
+  ])('retains wire validation with unrestricted access: $status', async ({ contentType, body, status }) => {
+    const { routes, connection, dispose } = await mounted({ unsafeAllowRemote: true })
+    try {
+      connection.rpc.intercept('/api', endpoint => endpoint === 'settings/describe', async () => {
+        throw new Error('invalid requests must not reach management operations')
+      })
+      const response = fakeResponse()
+      await routes.find(row => row.path === '/api')!.handler(fakeRawPost({
+        host: '203.0.113.10', 'content-type': contentType,
+      }, '/api/settings/describe', body), response.response)
+      expect(response.state.status).toBe(status)
+    } finally {
+      await dispose()
+    }
+  })
+
   it('provides the carrier-neutral service without a Web server', async () => {
     const ctx = new Context()
     provideBrowserCredentials(ctx)

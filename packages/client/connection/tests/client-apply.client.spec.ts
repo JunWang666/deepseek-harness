@@ -71,6 +71,13 @@ async function mount(): Promise<ConnectionHandle> {
 }
 
 describe('connection client apply', () => {
+  it.each([true, false, undefined])('enables remote management only for the Host opt-in %s', async (enabled) => {
+    vi.stubGlobal('location', { hostname: '203.0.113.10', search: '' })
+    vi.stubGlobal('__DSH_UNSAFE_ALLOW_REMOTE__', enabled)
+    const handle = await mount()
+    expect(handle.isLoopback).toBe(enabled === true)
+  })
+
   it('uses Host bootstrap timing when Gateway starts without overrides', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('__DSH_CONNECTION_RECOVERY__', {

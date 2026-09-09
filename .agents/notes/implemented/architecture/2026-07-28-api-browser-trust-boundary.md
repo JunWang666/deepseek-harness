@@ -6,9 +6,11 @@ English | [中文](2026-07-28-api-browser-trust-boundary.zh.md)
 
 ## Problem
 
-The web GUI host serves `/api` over plain loopback HTTP (default `127.0.0.1:3080`; the CLI rejects `--host 0.0.0.0`), and the surface includes remote-code-execution-grade methods — `session.prompt` drives an agent that runs bash. A browser turns the operator into a confused deputy against such a local API in two classic ways: a malicious page fires a "simple" cross-site POST (`text/plain` — sent without a CORS preflight) whose side effects execute even though the response stays unreadable, and a DNS-rebound origin talks to the socket as if same-origin, making CORS inapplicable entirely, with only the `Host` header betraying the attacker's domain. Before this decision the system's only browser-trust check (`isTrustedNativeDialogRequest`: loopback socket + same-origin + loopback Host) guarded exactly one cosmetic route — `host.pickDirectory`, whose native dialog pops on the host's screen — while every consequential method was unguarded. Guarding per-RPC also could not survive the in-app directory browser, whose whole point is serving legitimately remote clients that a loopback rule would refuse.
+The web GUI host serves `/api` over plain loopback HTTP (default `127.0.0.1:3080`; the CLI rejects `--host 0.0.0.0` without the explicit opt-in), and the surface includes remote-code-execution-grade methods — `session.prompt` drives an agent that runs bash. A browser turns the operator into a confused deputy against such a local API in two classic ways: a malicious page fires a "simple" cross-site POST (`text/plain` — sent without a CORS preflight) whose side effects execute even though the response stays unreadable, and a DNS-rebound origin talks to the socket as if same-origin, making CORS inapplicable entirely, with only the `Host` header betraying the attacker's domain. Before this decision the system's only browser-trust check (`isTrustedNativeDialogRequest`: loopback socket + same-origin + loopback Host) guarded exactly one cosmetic route — `host.pickDirectory`, whose native dialog pops on the host's screen — while every consequential method was unguarded. Guarding per-RPC also could not survive the in-app directory browser, whose whole point is serving legitimately remote clients that a loopback rule would refuse.
 
 ## Decision
+
+The checks below define the default policy. The explicit [unrestricted remote administration opt-in](../feature/2026-09-09-unrestricted-remote-administration.md) bypasses request trust and authentication; without it the CLI rejects an all-interfaces bind.
 
 Enforce browser trust once, at the carrier, for the entire `/api` prefix — two halves:
 
@@ -26,6 +28,6 @@ Reachability is the webserver binding's policy (`host: 127.0.0.1 | 0.0.0.0`), an
 ## Consequences
 
 - Any future `/api` method is covered by construction; there is no per-route trust decision left to forget.
-- A custom non-loopback composition must trust its serving authorities or requests are refused, then satisfy browser authentication like every loopback request. The shipped CLI rejects `--host 0.0.0.0`; `--trusted-host` only extends the Host/Origin fence and grants no identity.
+- A custom non-loopback composition must trust its serving authorities or requests are refused, then satisfy browser authentication like every loopback request. Without the explicit opt-in, the shipped CLI rejects `--host 0.0.0.0`; `--trusted-host` only extends the Host/Origin fence and grants no identity.
 - Clients must label POST bodies `application/json` (ours always did; raw-fetch tests gained the header).
 - Host and Origin remain request-routing evidence only. The process token and signed cookie establish the browser identity used by every Host method.

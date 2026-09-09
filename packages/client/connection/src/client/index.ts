@@ -103,6 +103,7 @@ export interface ClientTransportHooks {
 interface ClientTransportGlobal {
   __DSH_TRANSPORT__?: ClientTransportHooks
   __DSH_CONNECTION_RECOVERY__?: unknown
+  __DSH_UNSAFE_ALLOW_REMOTE__?: boolean
 }
 
 /**
@@ -113,7 +114,8 @@ export interface ConnectionHandle {
   /**
    * Whether the privileged surface is reachable: the page authority is
    * loopback, the transport declares the page owns the Host
-   * ({@link ClientTransportHooks.ownsHost}), or the context is not a browser.
+   * ({@link ClientTransportHooks.ownsHost}), the Host enables unrestricted remote
+   * administration, or the context is not a browser.
    */
   readonly isLoopback: boolean
   /** Current Remote event generation and the Host facts carried by its opening frame. */
@@ -224,7 +226,8 @@ export function apply(ctx: Context): void {
     publishState(undefined)
   }
   const handle: ConnectionHandle = {
-    isLoopback: transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: (globalThis as ClientTransportGlobal).__DSH_UNSAFE_ALLOW_REMOTE__ === true
+      || transport?.ownsHost === true || pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
     generation: {
       getSnapshot: () => generation,
       subscribe: (listener) => {

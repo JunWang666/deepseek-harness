@@ -177,7 +177,7 @@ export interface HostConnectionHandle {
 
   /**
    * Apply Connection's Host/Origin checks and browser authentication to
-   * another Web route.
+   * another Web route. Unrestricted remote administration skips both checks.
    * @param request - request headers from the HTTP or upgrade request.
    * @returns rejection status, or undefined when the route may accept the request.
    */
@@ -185,6 +185,7 @@ export interface HostConnectionHandle {
 
   /**
    * Authenticate one frontend index request, owning a token redirect or 401.
+   * Unrestricted remote administration permits index requests without credentials.
    * @param request - root or configured-index HTTP request.
    * @param response - response owned when the result is false.
    * @returns true only when the frontend may serve index.html.
@@ -194,7 +195,7 @@ export interface HostConnectionHandle {
   /**
    * Add the fresh process token to an ordinary Web application URL.
    * @param baseUrl - clean canonical browser origin.
-   * @returns root URL accepted by {@link authorizeIndex} for initial login.
+   * @returns root URL for login, or the unchanged URL under unrestricted remote administration.
    */
   authenticatedUrl(baseUrl: string): string
 }

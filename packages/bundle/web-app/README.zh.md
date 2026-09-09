@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-运行 `dsh --profile web`，打开提供聊天、模型与设置管理以及会话历史的交互式浏览器 GUI。它使用与其他 dsh 表层相同的模型访问、工具与安全默认值。启动时会打印经过认证的 URL，通常还会在默认浏览器中打开；SSH 会话和 `--no-open` 会保留该 URL，供你手动打开。你可以更改端口并允许额外主机，但不能绑定所有网络接口。需要在浏览器中交互式工作时选择本包；一次性的命令行任务应使用 `dsh-headless`。
+运行 `dsh --profile web`，打开提供聊天、模型与设置管理以及会话历史的交互式浏览器 GUI。它使用与其他 dsh 表层相同的模型访问、工具与安全默认值。启动时会打印经过认证的 URL，通常还会在默认浏览器中打开；SSH 会话和 `--no-open` 会保留该 URL，供你手动打开。你可以更改端口，并显式启用不受限的远程管理。需要在浏览器中交互式工作时选择本包；一次性的命令行任务应使用 `dsh-headless`。
 
 ## 目录
 
@@ -34,7 +34,7 @@ dsh --profile web
 dsh --profile web --no-open --port 8080
 ```
 
-启动后你会看到 `dsh web:` 行，其根 URL 携带新的进程 token。除非 `--no-open` 或 SSH 会话抑制，否则默认浏览器会打开该 URL、取得签名 cookie，再重定向到干净的根页面。页面加载且你可以与 agent（智能体）对话，就说明成功了。两种可预期的失败：前端未构建时，启动会以构建提示停止（checkout 中运行 `pnpm run build`）；浏览器无法打开时，stderr 会打印不含凭据的诊断，但服务器会继续运行——请自行打开已打印的启动 URL。
+使用默认访问策略时，启动后你会看到 `dsh web:` 行，其根 URL 携带新的进程 token。除非 `--no-open` 或 SSH 会话抑制，否则默认浏览器会打开该 URL、取得签名 cookie，再重定向到干净的根页面。页面加载且你可以与 agent（智能体）对话，就说明成功了。两种可预期的失败：前端未构建时，启动会以构建提示停止（checkout 中运行 `pnpm run build`）；浏览器无法打开时，stderr 会打印不含凭据的诊断，但服务器会继续运行——请自行打开已打印的启动 URL。
 
 ### 配置
 
@@ -49,9 +49,12 @@ dsh --profile web --no-open --port 8080
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-web-app)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
+<a id="lan-access-and-trusted-hosts"></a>
 ### LAN 访问与可信主机
 
-默认情况下 GUI 只接受本机的连接。绑定所有网络接口的部署也会允许 LAN 内的浏览器访问，此时打印的 URL 会附带一个 LAN 地址；`--trusted-host` 在两种情况下都能添加额外主机。Host 与 Origin 检查控制可达性，token 交换则认证每个 Host API 方法与 WebSocket stream。LAN 地址只在启动时采样一次，因此之后的网络变化不会被感知——重启 GUI 以重新公告。
+默认情况下 GUI 只接受本机的连接。绑定所有网络接口的部署也会允许 LAN 内的浏览器访问，此时打印的 URL 会附带一个 LAN 地址；`--trusted-host` 在两种情况下都能添加额外主机。默认策略下，Host 与 Origin 检查控制可达性，token 交换则认证每个 Host API 方法与 WebSocket stream。LAN 地址只在启动时采样一次，因此之后的网络变化不会被感知——重启 GUI 以重新公告。
+
+启动 `dsh --profile web` 前设置 `DSH_UNSAFE_ALLOW_REMOTE=1`，即可接受不受限的远程管理。随附 profile 在此模式下默认监听 `0.0.0.0`；显式传入 `--host 127.0.0.1` 可保持仅本机监听。Connection 对 HTTP API 调用和 WebSocket 升级跳过 Host、Origin、Fetch-Metadata 与浏览器 cookie 校验，无需令牌即可提供首页，并向远程页面开放管理功能。任何能连接该端口的人都能控制 Host，包括设置、凭据和工具执行。只有精确值 `1` 启用此模式；未设置、空值、`0` 和 `true` 均保留默认策略。修改变量后需重启。请求 schema、请求体大小限制和工具权限规则仍然生效。
 
 ### 通过 SSH 运行
 
@@ -146,7 +149,7 @@ URL 行与浏览器交接都是就绪信号：监督方一观察到该行就发�
 - **只能观察到交接的启动**——GUI 只报告浏览器被请求打开，而不是它确实打开了；之后的浏览器退出永远不会上报，打印的 URL 是你的手动回退路径。
 - **SSH 会话保留 URL 但跳过浏览器交接**——打印的 URL 指向远端宿主机 loopback 端点；SSH 客户端或编辑器必须暴露并打开本地转发地址。
 - **`BROWSER` 覆盖只能来自环境**——被发现的 `.env` 不能设置 `BROWSER`；只有继承值能为自动交接选择可执行文件。
-- **不支持绑定所有网络接口**——出于安全考虑，`--host 0.0.0.0` 会在启动时被拒绝；请使用默认 loopback 主机。
+- **显式启用远程管理后没有内置访问控制**——`DSH_UNSAFE_ALLOW_REMOTE=1` 使所有能连接的调用者都具有管理权限。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -29,6 +29,8 @@ export interface WebStartupValues {
   port?: number
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /** Disable Web request trust and authentication for unrestricted remote administration. */
+  unsafeAllowRemote: boolean
 }
 
 /** The web flag family, as commander parsed it. */
@@ -63,22 +65,24 @@ Examples:
 /**
  * Parse and provide the Web invocation as an ordinary Cordis service. The
  * command's action publishes the flags this invocation named; `--host 0.0.0.0`
- * or a non-numeric `--port` is a usage error, so on rejection (and on `--help`)
- * nothing is provided.
+ * requires `DSH_UNSAFE_ALLOW_REMOTE=1`. A non-numeric `--port` is a usage error;
+ * nothing is provided on rejection or `--help`.
  * @param ctx - plugin context carrying the command line.
  */
 export function apply(ctx: Context): void {
   const program = webCommand()
   program.action(() => {
     const options = program.opts<WebOptions>()
-    if (options.host === '0.0.0.0') {
-      program.error('error: --host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
+    const unsafeAllowRemote = process.env.DSH_UNSAFE_ALLOW_REMOTE === '1'
+    if (options.host === '0.0.0.0' && !unsafeAllowRemote) {
+      program.error('error: --host 0.0.0.0 requires DSH_UNSAFE_ALLOW_REMOTE=1, which grants every reachable caller full Host access; use 127.0.0.1 for local access')
     }
     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
     }
     ctx.provide(WEB_STARTUP_SERVICE, {
       openBrowser: options.open,
+      unsafeAllowRemote,
       ...options.host !== undefined && { host: options.host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],

@@ -11,7 +11,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { internals, provideCmdline } from '@deepseek-ai/dsh-cmdline'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apply, WEB_STARTUP_SERVICE, type WebStartupValues } from '../src/startup.ts'
 
 /** What one fixture boot observed. */
@@ -26,7 +26,10 @@ const disposers: (() => Promise<void>)[] = []
 /** Fixture tree roots, removed after their booted tree has been disposed. */
 const tempDirs: string[] = []
 
+beforeEach(() => { vi.stubEnv('DSH_UNSAFE_ALLOW_REMOTE', undefined) })
+
 afterEach(async () => {
+  vi.unstubAllEnvs()
   for (const dispose of disposers.splice(0)) await dispose()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   internals.stdout = process.stdout
@@ -60,10 +63,11 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     `  name: ${pathToFileURL(join(dir, 'reader.mjs')).href}`,
     `  inject: [${WEB_STARTUP_SERVICE}]`,
     '  config:',
-    "    host: !!js ctx.webStartup.host ?? '127.0.0.1'",
+    '    host: !!js "ctx.webStartup.host ?? (ctx.webStartup.unsafeAllowRemote ? \'0.0.0.0\' : \'127.0.0.1\')"',
     '    openBrowser: !!js ctx.webStartup.openBrowser',
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    unsafeAllowRemote: !!js ctx.webStartup.unsafeAllowRemote',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -105,6 +109,7 @@ describe('web command-line provider', () => {
       openBrowser: false,
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      unsafeAllowRemote: false,
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -112,13 +117,29 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ openBrowser: true, trustedHosts: [] })
+    expect(values).toEqual({ openBrowser: true, trustedHosts: [], unsafeAllowRemote: false })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       openBrowser: true,
       port: 3080,
       trustedHosts: [],
+      unsafeAllowRemote: false,
     })
+  })
+
+  it.each(['0', 'true', '', undefined])('keeps remote access disabled for %s', async (value) => {
+    vi.stubEnv('DSH_UNSAFE_ALLOW_REMOTE', value)
+    const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
+    expect(values).toBeUndefined()
+    expect(observed.exits).toEqual([1])
+  })
+
+  it.each([undefined, '0.0.0.0', '127.0.0.1'])('resolves the opted-in bind with explicit host %s', async (host) => {
+    vi.stubEnv('DSH_UNSAFE_ALLOW_REMOTE', '1')
+    const { values, observed } = await bootProvider(host === undefined ? [] : ['--host', host])
+    expect(values).toMatchObject({ unsafeAllowRemote: true })
+    expect(observed.readerConfig).toMatchObject({ host: host ?? '0.0.0.0', unsafeAllowRemote: true })
+    expect(observed.exits).toEqual([])
   })
 
   it('prints its own help and leaves the consumer pending', async () => {
@@ -139,9 +160,9 @@ describe('web command-line provider', () => {
     expect(observed.exits).toEqual([1])
   })
 
-  it('rejects the intentionally unsupported all-interfaces host before the consumer activates', async () => {
+  it('rejects an all-interfaces host without the opt-in before the consumer activates', async () => {
     const { values, observed } = await bootProvider(['--host', '0.0.0.0'])
-    expect(observed.out).toContain('--host 0.0.0.0 is intentionally not supported yet for safety: it would expose remote code execution to the network; use 127.0.0.1 instead')
+    expect(observed.out).toContain('--host 0.0.0.0 requires DSH_UNSAFE_ALLOW_REMOTE=1, which grants every reachable caller full Host access; use 127.0.0.1 for local access')
     expect(values).toBeUndefined()
     expect(observed.readerConfig).toBeUndefined()
     expect(observed.exits).toEqual([1])

@@ -350,9 +350,12 @@ export type Config = LocalConfig
 export interface ConnectionConfig {
   /** Browser recovery timing, injected into each served page. */
   recovery?: ConnectionRecoveryConfig
+  /** Accept every Web caller without Host/Origin checks or browser authentication. Default: false. */
+  unsafeAllowRemote?: boolean
   /**
    * Authorities this deployment serves beyond loopback: exact `host:port`, or
-   * port-less `host` matching any port. The /api trust fence refuses any
+   * port-less `host` matching any port. Unless unsafeAllowRemote is enabled,
+   * the /api trust fence refuses any
    * request whose Host is neither loopback nor listed here, so a
    * non-loopback (`0.0.0.0`) deployment must declare the names it is reached
    * by; the Web runtime derives LAN IP literals from an active all-interface

@@ -72,9 +72,12 @@ export const inject = ['credentials']
 export interface ConnectionConfig {
   /** Browser recovery timing, injected into each served page. */
   recovery?: ConnectionRecoveryConfig
+  /** Accept every Web caller without Host/Origin checks or browser authentication. Default: false. */
+  unsafeAllowRemote?: boolean
   /**
    * Authorities this deployment serves beyond loopback: exact `host:port`, or
-   * port-less `host` matching any port. The /api trust fence refuses any
+   * port-less `host` matching any port. Unless unsafeAllowRemote is enabled,
+   * the /api trust fence refuses any
    * request whose Host is neither loopback nor listed here, so a
    * non-loopback (`0.0.0.0`) deployment must declare the names it is reached
    * by; the Web runtime derives LAN IP literals from an active all-interface
@@ -90,6 +93,7 @@ export interface ConnectionConfig {
 export const Config: z<ConnectionConfig> = z.object({
   recovery: ConnectionRecoveryConfigSchema.default({}),
   trustedHosts: z.array(String).default([]),
+  unsafeAllowRemote: z.boolean().default(false),
   cookieMaxAgeDays: z.natural().min(1).default(30),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
 })
@@ -97,7 +101,7 @@ export const Config: z<ConnectionConfig> = z.object({
 /**
  * Provides carrier-neutral RPC and Fetch registries. When `webServer` is
  * present, the plugin also mounts the `/api` browser transport with Host/Origin
- * checks and persistent browser authentication.
+ * checks and persistent browser authentication unless unsafeAllowRemote is enabled.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */
@@ -105,6 +109,7 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   const recovery = resolveConnectionConfig(config?.recovery)
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
+  const unsafeAllowRemote = config?.unsafeAllowRemote ?? false
   const cookieMaxAgeDays = config?.cookieMaxAgeDays ?? 30
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
   // Config boundary: a malformed entry fails the load loudly here rather than
@@ -115,11 +120,13 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
     ctx,
     trustedHosts,
     await BrowserAuth.create(ctx.root, ctx.credentials, cookieMaxAgeDays),
+    unsafeAllowRemote,
   )
   ctx.inject(['webServer'], (webCtx) => {
     assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
     webCtx.on('webserver/index-inject', (table) => {
       table.push({ kind: 'global', name: '__DSH_CONNECTION_RECOVERY__', value: recovery })
+      if (unsafeAllowRemote) table.push({ kind: 'global', name: '__DSH_UNSAFE_ALLOW_REMOTE__', value: true })
     })
     const fetchHandler = connection.createSharedFetchHandler(API_PATH)
     const route: WebRoute = {
